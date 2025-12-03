@@ -1,248 +1,842 @@
-// lexical_analyzer.cpp
-// 等价移植自用户上传的 lexer.py（已读取并参照）。
-// 支持：./lexical_analyzer
-//       ./lexical_analyzer /abs/path/to/input
-//       ./lexical_analyzer /abs/path/to/input /abs/path/to/output
+// Lexical analyzer for the simplified C-- language.
+// Builds NFAs for identifiers/integers/floats, determinizes and minimizes them,
+// then uses the resulting DFAs to tokenize every source file under
+// test_sources/lex_sources/lex_test. Results are written to lex_output.
 
-#include <bits/stdc++.h>
-using namespace std;
+#include <algorithm>
+#include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <queue>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
-struct TokenSpec {
-    string regex;   // 原始正则（ECMAScript 风格）
-    string type;    // 'KEYWORD', 'IDN', 'INT', 'FLOAT', 'SYMBOL', 'WHITESPACE'
-    string desc;    // 描述（未直接使用，仅保留）
+namespace fs = std::filesystem;
+
+struct Position {
+	int line = 1;
+	int column = 1;
 };
 
-static const vector<TokenSpec> TOKEN_SPECS = {
-    { R"(int)", "KEYWORD", "int" },
-    { R"(void)", "KEYWORD", "void" },
-    { R"(return)", "KEYWORD", "return" },
-    { R"(const)", "KEYWORD", "const" },
-    { R"(main)", "KEYWORD", "main" },
-    { R"(float)", "KEYWORD", "float" },
-    { R"(if)", "KEYWORD", "if" },
-    { R"(else)", "KEYWORD", "else" },
-    { R"(&&)", "SYMBOL", "逻辑与" },
-    { R"(\|\|)", "SYMBOL", "逻辑或" },
-    { R"(==)", "SYMBOL", "等于" },
-    { R"(<=)", "SYMBOL", "小于等于" },
-    { R"(>=)", "SYMBOL", "大于等于" },
-    { R"(!=)", "SYMBOL", "不等于" },
-    { R"([0-9]+\.[0-9]+)", "FLOAT", "浮点数" },
-    { R"([0-9]+\.)", "FLOAT", "浮点数（尾点）" },
-    { R"(\.[0-9]+)", "FLOAT", "浮点数（首点）" },
-    { R"([0-9]+)", "INT", "整数" },
-    { R"([+*/%=<>(){};,-])", "SYMBOL", "符号" },
-    { R"([a-zA-Z_][a-zA-Z_0-9]*)", "IDN", "标识符" },
-    { R"([ \t\n\r]+)", "WHITESPACE", "空白符" }
+struct Cursor {
+	size_t index = 0;
+	int line = 1;
+	int column = 1;
 };
 
-// 关键字、运算符、分隔符映射（与原 Python 保持一致）
-static const unordered_map<string,int> KEYWORD_MAP = {
-    {"void",2}, {"int",1}, {"return",3}, {"const",4},
-    {"main",5}, {"float",6}, {"if",7}, {"else",8}
-};
-static const unordered_map<string,int> OPERATOR_MAP = {
-    {"==",17}, {"!=",20}, {"<=",18}, {">=",19}, {"&&",21}, {"||",22},
-    {"+",9}, {"-",10}, {"*",11}, {"/",12}, {"%",13}, {"=",14}, {">",15}, {"<",16}
-};
-static const unordered_map<char,int> SEPARATOR_MAP = {
-    {'(',23}, {')',24}, {'{',25}, {'}',26}, {';',27}, {',',28}
+struct TokenRecord {
+	std::string lexeme;
+	std::string tag;
 };
 
-static inline string to_lower_s(const string &s) {
-    string r = s;
-    for (char &c : r) c = (char)tolower((unsigned char)c);
-    return r;
+class SymbolTable {
+public:
+	struct Entry {
+		std::string lexeme;
+		std::string category;
+	};
+
+	void clear() {
+		entries_.clear();
+		index_.clear();
+	}
+
+	int intern(const std::string &lexeme, const std::string &category) {
+		const std::string key = category + ":" + lexeme;
+		auto it = index_.find(key);
+		if (it != index_.end()) {
+			return it->second;
+		}
+
+		const int id = static_cast<int>(entries_.size());
+		entries_.push_back({lexeme, category});
+		index_[key] = id;
+		return id;
+	}
+
+	const std::vector<Entry> &entries() const {
+		return entries_;
+	}
+
+private:
+	std::vector<Entry> entries_;
+	std::unordered_map<std::string, int> index_;
+};
+
+class NFA {
+public:
+	explicit NFA(size_t alphabetSize) : alphabetSize_(alphabetSize) {}
+
+	int addState(bool accepting) {
+		const int id = static_cast<int>(accepting_.size());
+		accepting_.push_back(accepting);
+		transitions_.push_back(std::vector<std::vector<int>>(alphabetSize_));
+		epsilon_.push_back({});
+		if (startState_ < 0) {
+			startState_ = id;
+		}
+		return id;
+	}
+
+	void setStartState(int id) {
+		startState_ = id;
+	}
+
+	void setAccepting(int id, bool accepting) {
+		accepting_[id] = accepting;
+	}
+
+	void addTransition(int from, int symbol, int to) {
+		transitions_[from][symbol].push_back(to);
+	}
+
+	void addEpsilonTransition(int from, int to) {
+		epsilon_[from].push_back(to);
+	}
+
+	size_t alphabetSize() const {
+		return alphabetSize_;
+	}
+
+	int startState() const {
+		return startState_;
+	}
+
+	size_t stateCount() const {
+		return accepting_.size();
+	}
+
+	bool isAccepting(int id) const {
+		return accepting_[id];
+	}
+
+	const std::vector<std::vector<std::vector<int>>> &transitions() const {
+		return transitions_;
+	}
+
+	const std::vector<std::vector<int>> &epsilonTransitions() const {
+		return epsilon_;
+	}
+
+private:
+	size_t alphabetSize_;
+	int startState_ = -1;
+	std::vector<bool> accepting_;
+	std::vector<std::vector<std::vector<int>>> transitions_;
+	std::vector<std::vector<int>> epsilon_;
+};
+
+class DFA {
+public:
+	explicit DFA(size_t alphabetSize = 0)
+		: alphabetSize_(alphabetSize), startState_(0) {}
+
+	int addState(bool accepting) {
+		const int id = static_cast<int>(accepting_.size());
+		accepting_.push_back(accepting);
+		transitions_.push_back(std::vector<int>(alphabetSize_, -1));
+		return id;
+	}
+
+	void setAccepting(int id, bool accepting) {
+		accepting_[id] = accepting;
+	}
+
+	void setTransition(int from, int symbol, int to) {
+		transitions_[from][symbol] = to;
+	}
+
+	void setStartState(int id) {
+		startState_ = id;
+	}
+
+	size_t alphabetSize() const {
+		return alphabetSize_;
+	}
+
+	size_t stateCount() const {
+		return accepting_.size();
+	}
+
+	const std::vector<std::vector<int>> &transitions() const {
+		return transitions_;
+	}
+
+	const std::vector<bool> &accepting() const {
+		return accepting_;
+	}
+
+	int startState() const {
+		return startState_;
+	}
+
+	int match(const std::string &text, size_t startPos,
+			  const std::function<int(char)> &classifier) const {
+		if (transitions_.empty()) {
+			return -1;
+		}
+
+		int state = startState_;
+		size_t cursor = startPos;
+		int lastAccept = -1;
+		int consumed = 0;
+
+		while (cursor < text.size()) {
+			const int symbol = classifier(text[cursor]);
+			if (symbol < 0 || static_cast<size_t>(symbol) >= alphabetSize_) {
+				break;
+			}
+			const int nextState = transitions_[state][symbol];
+			if (nextState < 0) {
+				break;
+			}
+			state = nextState;
+			++cursor;
+			++consumed;
+			if (accepting_[state]) {
+				lastAccept = consumed;
+			}
+		}
+
+		return lastAccept;
+	}
+
+	static DFA determinize(const NFA &nfa);
+	static DFA minimize(const DFA &dfa);
+
+private:
+	size_t alphabetSize_ = 0;
+	int startState_ = 0;
+	std::vector<bool> accepting_;
+	std::vector<std::vector<int>> transitions_;
+};
+
+namespace {
+
+struct VectorHasher {
+	size_t operator()(const std::vector<int> &vec) const noexcept {
+		size_t seed = 0;
+		for (int value : vec) {
+			seed ^= static_cast<size_t>(value) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+		}
+		return seed;
+	}
+};
+
+std::vector<int> epsilonClosure(const NFA &nfa, const std::vector<int> &states) {
+	std::vector<int> closure;
+	std::vector<bool> visited(nfa.stateCount(), false);
+	std::queue<int> pending;
+
+	for (int state : states) {
+		if (!visited[state]) {
+			visited[state] = true;
+			closure.push_back(state);
+			pending.push(state);
+		}
+	}
+
+	while (!pending.empty()) {
+		const int state = pending.front();
+		pending.pop();
+		for (int target : nfa.epsilonTransitions()[state]) {
+			if (!visited[target]) {
+				visited[target] = true;
+				closure.push_back(target);
+				pending.push(target);
+			}
+		}
+	}
+
+	std::sort(closure.begin(), closure.end());
+	closure.erase(std::unique(closure.begin(), closure.end()), closure.end());
+	return closure;
 }
 
-int main(int argc, char** argv) {
-    ios::sync_with_stdio(false);
-    cin.tie(nullptr);
-
-    // 输入/输出处理
-    string source_code;
-    bool use_input_file = false;
-    bool use_output_file = false;
-    string input_path, output_path;
-
-    if (argc == 3) {
-        input_path = argv[1];
-        output_path = argv[2];
-        use_input_file = true;
-        use_output_file = true;
-    } else if (argc == 2) {
-        input_path = argv[1];
-        use_input_file = true;
-        use_output_file = false;
-    } else if (argc == 1) {
-        use_input_file = false;
-        use_output_file = false;
-    } else {
-        cerr << "用法：./lexical_analyzer [源文件路径] [输出文件路径]\n";
-        return 1;
-    }
-
-    if (use_input_file) {
-        ifstream ifs(input_path, ios::in);
-        if (!ifs) {
-            cerr << "错误：找不到文件 '" << input_path << "'\n";
-            return 1;
-        }
-        ostringstream ss;
-        ss << ifs.rdbuf();
-        source_code = ss.str();
-    } else {
-        // 从 stdin 读取全部
-        {
-            ostringstream ss;
-            ss << cin.rdbuf();
-            source_code = ss.str();
-        }
-    }
-
-    // 准备输出流
-    ofstream ofs;
-    ostream* out = &cout;
-    if (use_output_file) {
-        ofs.open(output_path, ios::out);
-        if (!ofs) {
-            cerr << "错误：无法写入输出文件 '" << output_path << "'\n";
-            return 1;
-        }
-        out = &ofs;
-    }
-
-    // 预构建 std::regex 列表（在模式前加 ^ 保证从当前位置开始匹配）
-    vector<regex> regex_list;
-    regex_list.reserve(TOKEN_SPECS.size());
-    for (const auto &ts : TOKEN_SPECS) {
-        string pat = "^(" + ts.regex + ")";
-        try {
-            regex r(pat, std::regex::ECMAScript);
-            regex_list.push_back(r);
-        } catch (const std::regex_error &e) {
-            cerr << "正则编译错误: " << e.what() << "  pattern=" << pat << "\n";
-            return 1;
-        }
-    }
-
-    // 开始词法分析（按 Python 程序的行为：跳过空白、最长匹配、规则优先）
-    vector<pair<string,string>> tokens;
-    int line = 1;
-    int col = 1;
-    size_t curr_pos = 0;
-    size_t code_len = source_code.size();
-
-    while (curr_pos < code_len) {
-        char c = source_code[curr_pos];
-        // 跳过空白字符（与原 Python 行/列更新一致）
-        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-            if (c == '\n') {
-                line += 1;
-                col = 1;
-            } else {
-                col += 1;
-            }
-            curr_pos += 1;
-            continue;
-        }
-
-        string remaining = source_code.substr(curr_pos);
-
-        // 在当前位置对所有 token 规则做 anchored 匹配，选择最长的匹配；长度相同取规则优先级更高（索引小）
-        size_t best_len = 0;
-        int best_idx = -1;
-        string best_match;
-
-        for (size_t i = 0; i < regex_list.size(); ++i) {
-            smatch m;
-            // 使用 regex_search（由于 pattern 带 ^，它只会在开头匹配）
-            if (regex_search(remaining, m, regex_list[i]) && m.size() >= 1) {
-                string matched = m.str(1);
-                if (matched.size() > best_len) {
-                    best_len = matched.size();
-                    best_idx = (int)i;
-                    best_match = matched;
-                } else if (matched.size() == best_len && best_idx != -1) {
-                    // 长度相同则保持较小的 rule idx（已满足因为按顺序遍历）
-                    // 这里不需要额外处理，因为我们只替换当 found > best_len。
-                } else if (best_idx == -1 && matched.size() > 0) {
-                    // 首次发现
-                    best_len = matched.size();
-                    best_idx = (int)i;
-                    best_match = matched;
-                }
-            }
-        }
-
-        if (best_idx != -1 && best_len > 0) {
-            string lexeme = best_match;
-            string token_type = TOKEN_SPECS[best_idx].type;
-
-            // 记录起始行列（用于错误报告时）
-            int start_line = line;
-            int start_col = col;
-
-            // 更新行列（与 Python 逻辑一致：逐字符更新）
-            for (char ch : lexeme) {
-                if (ch == '\n') {
-                    line += 1;
-                    col = 1;
-                } else {
-                    col += 1;
-                }
-            }
-
-            // 分类处理（与 Python 行为一致）
-            if (token_type == "KEYWORD" || (token_type == "IDN" && KEYWORD_MAP.count(to_lower_s(lexeme)))) {
-                string lw = to_lower_s(lexeme);
-                int kw_code = KEYWORD_MAP.at(lw);
-                (*out) << lexeme << "\t" << "<KW," << kw_code << ">\n";
-            } else if (token_type == "IDN") {
-                (*out) << lexeme << "\t" << "<IDN," << lexeme << ">\n";
-            } else if (token_type == "INT") {
-                (*out) << lexeme << "\t" << "<INT," << lexeme << ">\n";
-            } else if (token_type == "FLOAT") {
-                (*out) << lexeme << "\t" << "<FLOAT," << lexeme << ">\n";
-            } else if (token_type == "SYMBOL") {
-                // 符号可能是操作符或分隔符，或非法符号
-                if (OPERATOR_MAP.count(lexeme)) {
-                    int op_code = OPERATOR_MAP.at(lexeme);
-                    (*out) << lexeme << "\t" << "<OP," << op_code << ">\n";
-                } else if (lexeme.size() == 1 && SEPARATOR_MAP.count(lexeme[0])) {
-                    int se_code = SEPARATOR_MAP.at(lexeme[0]);
-                    (*out) << lexeme << "\t" << "<SE," << se_code << ">\n";
-                } else {
-                    // 未知的符号视作错误，报告起始位置（与Python类似）
-                    (*out) << lexeme << "\t" << "<ERROR," << start_line << "," << start_col << ">\n";
-                }
-            } else {
-                // 对于 WHITESPACE（通常之前已经跳过了），或其他未识别类型
-                if (token_type == "WHITESPACE") {
-                    // 忽略（Python 在主循环一开始已跳过空白）
-                } else {
-                    // 作为一般 token 输出（防御性）
-                    (*out) << lexeme << "\t" << "<" << token_type << "," << lexeme << ">\n";
-                }
-            }
-
-            curr_pos += best_len;
-        } else {
-            // 没有匹配到任何 token：单字符错误
-            char invalid_char = source_code[curr_pos];
-            (*out) << invalid_char << "\t" << "<ERROR," << line << "," << col << ">\n";
-            if (invalid_char == '\n') {
-                line += 1;
-                col = 1;
-            } else {
-                col += 1;
-            }
-            curr_pos += 1;
-        }
-    }
-
-    // flush and close if necessary
-    if (ofs.is_open()) ofs.close();
-    return 0;
+std::vector<int> moveOnSymbol(const NFA &nfa, const std::vector<int> &states, int symbol) {
+	std::vector<int> moved;
+	for (int state : states) {
+		const auto &targets = nfa.transitions()[state][symbol];
+		moved.insert(moved.end(), targets.begin(), targets.end());
+	}
+	std::sort(moved.begin(), moved.end());
+	moved.erase(std::unique(moved.begin(), moved.end()), moved.end());
+	return moved;
 }
+
+void stepCursor(Cursor &cursor, char ch) {
+	++cursor.index;
+	if (ch == '\n' || ch == '\r') {
+		++cursor.line;
+		cursor.column = 1;
+	} else {
+		++cursor.column;
+	}
+}
+
+std::string toLower(std::string value) {
+	std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+		return static_cast<char>(std::tolower(c));
+	});
+	return value;
+}
+
+bool isAlpha(unsigned char ch) {
+	return std::isalpha(ch) != 0;
+}
+
+bool isDigit(unsigned char ch) {
+	return std::isdigit(ch) != 0;
+}
+
+} // namespace
+
+DFA DFA::determinize(const NFA &nfa) {
+	if (nfa.stateCount() == 0) {
+		return DFA(nfa.alphabetSize());
+	}
+
+	DFA dfa(nfa.alphabetSize());
+	const std::vector<int> startClosure = epsilonClosure(nfa, {nfa.startState()});
+	if (startClosure.empty()) {
+		return dfa;
+	}
+
+	std::queue<std::vector<int>> queue;
+	std::unordered_map<std::vector<int>, int, VectorHasher> index;
+
+	const auto addState = [&](const std::vector<int> &subset) {
+		bool accepting = false;
+		for (int state : subset) {
+			if (nfa.isAccepting(state)) {
+				accepting = true;
+				break;
+			}
+		}
+		const int id = dfa.addState(accepting);
+		index[subset] = id;
+		queue.push(subset);
+		return id;
+	};
+
+	const int startId = addState(startClosure);
+	dfa.setStartState(startId);
+
+	while (!queue.empty()) {
+		const std::vector<int> subset = queue.front();
+		queue.pop();
+		const int fromId = index[subset];
+
+		for (size_t symbol = 0; symbol < nfa.alphabetSize(); ++symbol) {
+			const std::vector<int> moved = moveOnSymbol(nfa, subset, static_cast<int>(symbol));
+			if (moved.empty()) {
+				continue;
+			}
+			const std::vector<int> closure = epsilonClosure(nfa, moved);
+			if (closure.empty()) {
+				continue;
+			}
+
+			auto it = index.find(closure);
+			int targetId;
+			if (it == index.end()) {
+				targetId = addState(closure);
+			} else {
+				targetId = it->second;
+			}
+			dfa.setTransition(fromId, static_cast<int>(symbol), targetId);
+		}
+	}
+
+	return dfa;
+}
+
+DFA DFA::minimize(const DFA &dfa) {
+	const size_t stateCount = dfa.stateCount();
+	if (stateCount == 0) {
+		return dfa;
+	}
+
+	std::vector<bool> reachable(stateCount, false);
+	std::queue<int> pending;
+	reachable[dfa.startState()] = true;
+	pending.push(dfa.startState());
+
+	while (!pending.empty()) {
+		const int state = pending.front();
+		pending.pop();
+		for (size_t symbol = 0; symbol < dfa.alphabetSize(); ++symbol) {
+			const int target = dfa.transitions()[state][symbol];
+			if (target >= 0 && !reachable[target]) {
+				reachable[target] = true;
+				pending.push(target);
+			}
+		}
+	}
+
+	std::vector<std::vector<bool>> distinguishable(stateCount, std::vector<bool>(stateCount, false));
+	for (size_t i = 0; i < stateCount; ++i) {
+		if (!reachable[i]) {
+			continue;
+		}
+		for (size_t j = 0; j < i; ++j) {
+			if (!reachable[j]) {
+				continue;
+			}
+			if (dfa.accepting()[i] != dfa.accepting()[j]) {
+				distinguishable[i][j] = distinguishable[j][i] = true;
+			}
+		}
+	}
+
+	bool updated;
+	do {
+		updated = false;
+		for (size_t i = 0; i < stateCount; ++i) {
+			if (!reachable[i]) {
+				continue;
+			}
+			for (size_t j = 0; j < i; ++j) {
+				if (!reachable[j] || distinguishable[i][j]) {
+					continue;
+				}
+				for (size_t symbol = 0; symbol < dfa.alphabetSize(); ++symbol) {
+					const int ti = dfa.transitions()[i][symbol];
+					const int tj = dfa.transitions()[j][symbol];
+					if (ti == tj) {
+						continue;
+					}
+					if (ti < 0 || tj < 0) {
+						if (ti != tj) {
+							distinguishable[i][j] = distinguishable[j][i] = true;
+							updated = true;
+						}
+						break;
+					}
+					const int a = std::max(ti, tj);
+					const int b = std::min(ti, tj);
+					if (distinguishable[a][b]) {
+						distinguishable[i][j] = distinguishable[j][i] = true;
+						updated = true;
+						break;
+					}
+				}
+			}
+		}
+	} while (updated);
+
+	std::vector<int> representative(stateCount, -1);
+	int nextId = 0;
+	for (size_t i = 0; i < stateCount; ++i) {
+		if (!reachable[i]) {
+			continue;
+		}
+		bool assigned = false;
+		for (size_t j = 0; j < i; ++j) {
+			if (!reachable[j]) {
+				continue;
+			}
+			if (!distinguishable[i][j]) {
+				representative[i] = representative[j];
+				assigned = true;
+				break;
+			}
+		}
+		if (!assigned) {
+			representative[i] = nextId++;
+		}
+	}
+
+	DFA minimized(dfa.alphabetSize());
+	for (int i = 0; i < nextId; ++i) {
+		minimized.addState(false);
+	}
+	minimized.setStartState(representative[dfa.startState()]);
+
+	for (size_t oldState = 0; oldState < stateCount; ++oldState) {
+		const int rep = representative[oldState];
+		if (rep < 0) {
+			continue;
+		}
+		if (dfa.accepting()[oldState]) {
+			minimized.setAccepting(rep, true);
+		}
+		for (size_t symbol = 0; symbol < dfa.alphabetSize(); ++symbol) {
+			const int target = dfa.transitions()[oldState][symbol];
+			if (target < 0) {
+				continue;
+			}
+			const int targetRep = representative[target];
+			if (targetRep >= 0) {
+				minimized.setTransition(rep, static_cast<int>(symbol), targetRep);
+			}
+		}
+	}
+
+	return minimized;
+}
+
+class Lexer {
+public:
+	Lexer();
+
+	std::vector<TokenRecord> tokenize(const std::string &input) {
+		symbolTable_.clear();
+		std::vector<TokenRecord> tokens;
+		Cursor cursor;
+
+		while (cursor.index < input.size()) {
+			char ch = input[cursor.index];
+			const unsigned char uch = static_cast<unsigned char>(ch);
+
+			if (std::isspace(uch)) {
+				stepCursor(cursor, ch);
+				continue;
+			}
+
+			if (consumeLineComment(input, cursor)) {
+				continue;
+			}
+			if (consumeBlockComment(input, cursor, tokens)) {
+				continue;
+			}
+
+			if (isAlpha(uch) || ch == '_') {
+				processIdentifier(input, cursor, tokens);
+				continue;
+			}
+
+			if (isDigit(uch) || (ch == '.' && cursor.index + 1 < input.size() &&
+								  isDigit(static_cast<unsigned char>(input[cursor.index + 1])))) {
+				if (processNumber(input, cursor, tokens)) {
+					continue;
+				}
+			}
+
+			if (processOperator(input, cursor, tokens)) {
+				continue;
+			}
+			if (processSeparator(input, cursor, tokens)) {
+				continue;
+			}
+
+			emitErrorToken(std::string(1, ch), {cursor.line, cursor.column}, tokens);
+			stepCursor(cursor, ch);
+		}
+
+		return tokens;
+	}
+
+	const SymbolTable &symbolTable() const {
+		return symbolTable_;
+	}
+
+private:
+	static int classifyIdentifier(char ch) {
+		const unsigned char uch = static_cast<unsigned char>(ch);
+		if (isAlpha(uch)) {
+			return 0;
+		}
+		if (isDigit(uch)) {
+			return 1;
+		}
+		if (ch == '_') {
+			return 2;
+		}
+		return -1;
+	}
+
+	static int classifyInteger(char ch) {
+		return isDigit(static_cast<unsigned char>(ch)) ? 0 : -1;
+	}
+
+	static int classifyFloat(char ch) {
+		if (isDigit(static_cast<unsigned char>(ch))) {
+			return 0;
+		}
+		if (ch == '.') {
+			return 1;
+		}
+		return -1;
+	}
+
+	void processIdentifier(const std::string &input, Cursor &cursor, std::vector<TokenRecord> &tokens) {
+		const size_t startIndex = cursor.index;
+		const int length = identifierDfa_.match(input, cursor.index, classifyIdentifier);
+		if (length <= 0) {
+			emitErrorToken(std::string(1, input[cursor.index]), {cursor.line, cursor.column}, tokens);
+			stepCursor(cursor, input[cursor.index]);
+			return;
+		}
+
+		const std::string lexeme = input.substr(startIndex, static_cast<size_t>(length));
+		std::string lowered = toLower(lexeme);
+		auto it = keywordCodes_.find(lowered);
+		if (it != keywordCodes_.end()) {
+			std::ostringstream oss;
+			oss << "<KW," << it->second << ">";
+			tokens.push_back({lexeme, oss.str()});
+		} else {
+			symbolTable_.intern(lexeme, "IDN");
+			tokens.push_back({lexeme, "<IDN," + lexeme + ">"});
+		}
+		advanceCursor(cursor, input, static_cast<size_t>(length));
+	}
+
+	bool processNumber(const std::string &input, Cursor &cursor, std::vector<TokenRecord> &tokens) {
+		const size_t startIndex = cursor.index;
+		const int floatLen = floatDfa_.match(input, cursor.index, classifyFloat);
+		if (floatLen > 0) {
+			const std::string lexeme = input.substr(startIndex, static_cast<size_t>(floatLen));
+			symbolTable_.intern(lexeme, "FLOAT");
+			tokens.push_back({lexeme, "<FLOAT," + lexeme + ">"});
+			advanceCursor(cursor, input, static_cast<size_t>(floatLen));
+			return true;
+		}
+
+		const int intLen = integerDfa_.match(input, cursor.index, classifyInteger);
+		if (intLen > 0) {
+			const std::string lexeme = input.substr(startIndex, static_cast<size_t>(intLen));
+			symbolTable_.intern(lexeme, "INT");
+			tokens.push_back({lexeme, "<INT," + lexeme + ">"});
+			advanceCursor(cursor, input, static_cast<size_t>(intLen));
+			return true;
+		}
+
+		return false;
+	}
+
+	bool processOperator(const std::string &input, Cursor &cursor, std::vector<TokenRecord> &tokens) {
+		static const std::vector<std::pair<std::string, int>> compoundOps = {
+			{"==", 17}, {"!=", 20}, {"<=", 18}, {">=", 19}, {"&&", 21}, {"||", 22}
+		};
+
+		for (const auto &entry : compoundOps) {
+			const auto &symbol = entry.first;
+			if (cursor.index + symbol.size() > input.size()) {
+				continue;
+			}
+			if (input.compare(cursor.index, symbol.size(), symbol) == 0) {
+				std::ostringstream oss;
+				oss << "<OP," << entry.second << ">";
+				tokens.push_back({symbol, oss.str()});
+				advanceCursor(cursor, input, symbol.size());
+				return true;
+			}
+		}
+
+		const auto singleIt = operatorCodes_.find(std::string(1, input[cursor.index]));
+		if (singleIt != operatorCodes_.end()) {
+			std::ostringstream oss;
+			oss << "<OP," << singleIt->second << ">";
+			tokens.push_back({std::string(1, input[cursor.index]), oss.str()});
+			advanceCursor(cursor, input, 1);
+			return true;
+		}
+		return false;
+	}
+
+	bool processSeparator(const std::string &input, Cursor &cursor, std::vector<TokenRecord> &tokens) {
+		const auto it = separatorCodes_.find(input[cursor.index]);
+		if (it == separatorCodes_.end()) {
+			return false;
+		}
+		std::ostringstream oss;
+		oss << "<SE," << it->second << ">";
+		tokens.push_back({std::string(1, input[cursor.index]), oss.str()});
+		advanceCursor(cursor, input, 1);
+		return true;
+	}
+
+	bool consumeLineComment(const std::string &input, Cursor &cursor) {
+		if (input[cursor.index] != '/' || cursor.index + 1 >= input.size() || input[cursor.index + 1] != '/') {
+			return false;
+		}
+		advanceCursor(cursor, input, 2);
+		while (cursor.index < input.size()) {
+			const char ch = input[cursor.index];
+			if (ch == '\n') {
+				break;
+			}
+			stepCursor(cursor, ch);
+		}
+		return true;
+	}
+
+	bool consumeBlockComment(const std::string &input, Cursor &cursor, std::vector<TokenRecord> &tokens) {
+		if (input[cursor.index] != '/' || cursor.index + 1 >= input.size() || input[cursor.index + 1] != '*') {
+			return false;
+		}
+		const Position startPos{cursor.line, cursor.column};
+		advanceCursor(cursor, input, 2);
+		bool closed = false;
+		while (cursor.index < input.size()) {
+			if (input[cursor.index] == '*' && cursor.index + 1 < input.size() && input[cursor.index + 1] == '/') {
+				advanceCursor(cursor, input, 2);
+				closed = true;
+				break;
+			}
+			stepCursor(cursor, input[cursor.index]);
+		}
+		if (!closed) {
+			emitErrorToken("/*", startPos, tokens);
+		}
+		return true;
+	}
+
+	void emitErrorToken(const std::string &lexeme, const Position &pos, std::vector<TokenRecord> &tokens) {
+		std::ostringstream oss;
+		oss << "<ERROR," << pos.line << "," << pos.column << ">";
+		tokens.push_back({lexeme, oss.str()});
+	}
+
+	void advanceCursor(Cursor &cursor, const std::string &text, size_t length) {
+		for (size_t i = 0; i < length && cursor.index < text.size(); ++i) {
+			stepCursor(cursor, text[cursor.index]);
+		}
+	}
+
+	static NFA buildIdentifierNfa() {
+		NFA nfa(3);
+		const int s0 = nfa.addState(false);
+		const int s1 = nfa.addState(true);
+		nfa.setStartState(s0);
+		nfa.addTransition(s0, 0, s1);
+		nfa.addTransition(s0, 2, s1);
+		nfa.addTransition(s1, 0, s1);
+		nfa.addTransition(s1, 1, s1);
+		nfa.addTransition(s1, 2, s1);
+		return nfa;
+	}
+
+	static NFA buildIntegerNfa() {
+		NFA nfa(1);
+		const int s0 = nfa.addState(false);
+		const int s1 = nfa.addState(true);
+		nfa.setStartState(s0);
+		nfa.addTransition(s0, 0, s1);
+		nfa.addTransition(s1, 0, s1);
+		return nfa;
+	}
+
+	static NFA buildFloatNfa() {
+		// Accepts patterns like digits '.' digits or '.' digits.
+		NFA nfa(2);
+		const int s0 = nfa.addState(false);
+		const int digitsBefore = nfa.addState(false);
+		const int dotAfterDigits = nfa.addState(false);
+		const int digitsAfterDot = nfa.addState(true);
+		const int leadingDot = nfa.addState(false);
+		nfa.setStartState(s0);
+
+		nfa.addTransition(s0, 0, digitsBefore);
+		nfa.addTransition(digitsBefore, 0, digitsBefore);
+		nfa.addTransition(digitsBefore, 1, dotAfterDigits);
+		nfa.addTransition(dotAfterDigits, 0, digitsAfterDot);
+		nfa.addTransition(digitsAfterDot, 0, digitsAfterDot);
+
+		nfa.addTransition(s0, 1, leadingDot);
+		nfa.addTransition(leadingDot, 0, digitsAfterDot);
+
+		return nfa;
+	}
+
+	DFA identifierDfa_;
+	DFA integerDfa_;
+	DFA floatDfa_;
+	SymbolTable symbolTable_;
+
+	const std::unordered_map<std::string, int> keywordCodes_ = {
+		{"int", 1},   {"void", 2},  {"return", 3}, {"const", 4},
+		{"main", 5},  {"float", 6}, {"if", 7},     {"else", 8}
+	};
+
+	const std::unordered_map<std::string, int> operatorCodes_ = {
+		{"+", 9},  {"-", 10}, {"*", 11}, {"/", 12}, {"%", 13},
+		{"=", 14}, {">", 15}, {"<", 16}
+	};
+
+	const std::unordered_map<char, int> separatorCodes_ = {
+		{'(', 23}, {')', 24}, {'{', 25}, {'}', 26}, {';', 27}, {',', 28}
+	};
+};
+
+Lexer::Lexer()
+	: identifierDfa_(DFA::minimize(DFA::determinize(buildIdentifierNfa()))),
+	  integerDfa_(DFA::minimize(DFA::determinize(buildIntegerNfa()))),
+	  floatDfa_(DFA::minimize(DFA::determinize(buildFloatNfa()))) {}
+
+std::string readFile(const fs::path &path) {
+	std::ifstream input(path);
+	if (!input) {
+		throw std::runtime_error("Failed to open " + path.string());
+	}
+	std::ostringstream buffer;
+	buffer << input.rdbuf();
+	return buffer.str();
+}
+
+void writeTokens(const fs::path &path, const std::vector<TokenRecord> &tokens) {
+	std::ofstream output(path);
+	if (!output) {
+		throw std::runtime_error("Failed to write " + path.string());
+	}
+	for (const auto &token : tokens) {
+		output << token.lexeme << '\t' << token.tag << '\n';
+	}
+}
+
+int main(int argc, char *argv[]) {
+	try {
+		fs::path workspace = fs::current_path();
+		fs::path inputDir = (argc > 1) ? fs::path(argv[1])
+									   : workspace / "test_sources" / "lex_sources" / "lex_test";
+		fs::path outputDir = (argc > 2) ? fs::path(argv[2])
+										: workspace / "test_sources" / "lex_sources" / "lex_output";
+
+		if (!fs::exists(inputDir)) {
+			std::cerr << "Input directory not found: " << inputDir << '\n';
+			return 1;
+		}
+		fs::create_directories(outputDir);
+
+		std::vector<fs::path> sources;
+		for (const auto &entry : fs::directory_iterator(inputDir)) {
+			if (!entry.is_regular_file()) {
+				continue;
+			}
+			if (entry.path().extension() == ".sy") {
+				sources.push_back(entry.path());
+			}
+		}
+
+		if (sources.empty()) {
+			std::cerr << "No .sy files found in " << inputDir << '\n';
+			return 1;
+		}
+
+		std::sort(sources.begin(), sources.end());
+
+		Lexer lexer;
+		for (const auto &sourcePath : sources) {
+			const std::string content = readFile(sourcePath);
+			const std::vector<TokenRecord> tokens = lexer.tokenize(content);
+			fs::path outputPath = outputDir / sourcePath.stem();
+			outputPath += ".out";
+			writeTokens(outputPath, tokens);
+			std::cout << "Generated tokens for " << sourcePath.filename() << " -> "
+					  << outputPath.filename() << '\n';
+		}
+	} catch (const std::exception &ex) {
+		std::cerr << "Lexer failed: " << ex.what() << '\n';
+		return 1;
+	}
+
+	return 0;
+}
+

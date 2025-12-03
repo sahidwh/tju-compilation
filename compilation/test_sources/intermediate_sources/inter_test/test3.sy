@@ -1,0 +1,584 @@
+Program
+  compUnit
+    unit
+      funcDef
+        void (VoID)
+        Ident (MaIn)
+        ( (()
+        funcFParamsOpt
+        ) ())
+        block
+          { ({)
+          blockItemList
+            blockItemList
+              blockItemList
+                blockItemList
+                  blockItemList
+                    blockItemList
+                      blockItemList
+                        blockItemList
+                          blockItemList
+                          blockItem
+                            decl
+                              constDecl
+                                const (CoNsT)
+                                bType
+                                  int (InT)
+                                constDefList
+                                  constDefList
+                                    constDef
+                                      Ident (_X1)
+                                      = (=)
+                                      constInitVal
+                                        constExp
+                                          addExp
+                                            mulExp
+                                              unaryExp
+                                                primaryExp
+                                                  number
+                                                    IntConst (42)
+                                  , (,)
+                                  constDef
+                                    Ident (y)
+                                    = (=)
+                                    constInitVal
+                                      constExp
+                                        addExp
+                                          mulExp
+                                            unaryExp
+                                              primaryExp
+                                                number
+                                                  IntConst (0)
+                                ; (;)
+                        blockItem
+                          decl
+                            varDecl
+                              bType
+                                float (FLOAT)
+                              varDefList
+                                varDefList
+                                  varDef
+                                    Ident (Pi)
+                                    = (=)
+                                    initVal
+                                      exp
+                                        lOrExp
+                                          lAndExp
+                                            eqExp
+                                              relExp
+                                                addExp
+                                                  mulExp
+                                                    unaryExp
+                                                      primaryExp
+                                                        number
+                                                          floatConst (3.14)
+                                , (,)
+                                varDef
+                                  Ident (rate)
+                                  = (=)
+                                  initVal
+                                    exp
+                                      lOrExp
+                                        lAndExp
+                                          eqExp
+                                            relExp
+                                              addExp
+                                                mulExp
+                                                  unaryExp
+                                                    primaryExp
+                                                      number
+                                                        floatConst (0.5)
+                              ; (;)
+                      blockItem
+                        decl
+                          varDecl
+                            bType
+                              int (int)
+                            varDefList
+                              varDefList
+                                varDef
+                                  Ident (A)
+                                  = (=)
+                                  initVal
+                                    exp
+                                      lOrExp
+                                        lAndExp
+                                          eqExp
+                                            relExp
+                                              addExp
+                                                mulExp
+                                                  unaryExp
+                                                    primaryExp
+                                                      number
+                                                        IntConst (1)
+                              , (,)
+                              varDef
+                                Ident (B)
+                                = (=)
+                                initVal
+                                  exp
+                                    lOrExp
+                                      lAndExp
+                                        eqExp
+                                          relExp
+                                            addExp
+                                              mulExp
+                                                unaryExp
+                                                  primaryExp
+                                                    number
+                                                      IntConst (2)
+                            ; (;)
+                    blockItem
+                      stmt
+                        matchedStmt
+                          lVal
+                            Ident (y)
+                          = (=)
+                          exp
+                            lOrExp
+                              lAndExp
+                                eqExp
+                                  relExp
+                                    addExp
+                                      addExp
+                                        addExp
+                                          mulExp
+                                            unaryExp
+                                              primaryExp
+                                                lVal
+                                                  Ident (y)
+                                        addOp
+                                          + (+)
+                                        mulExp
+                                          mulExp
+                                            unaryExp
+                                              primaryExp
+                                                lVal
+                                                  Ident (_X1)
+                                          mulOp
+                                            * (*)
+                                          unaryExp
+                                            primaryExp
+                                              number
+                                                IntConst (2)
+                                      addOp
+                                        - (-)
+                                      mulExp
+                                        mulExp
+                                          mulExp
+                                            unaryExp
+                                              primaryExp
+                                                number
+                                                  IntConst (5)
+                                          mulOp
+                                            / (/)
+                                          unaryExp
+                                            primaryExp
+                                              number
+                                                IntConst (3)
+                                        mulOp
+                                          % (%)
+                                        unaryExp
+                                          primaryExp
+                                            number
+                                              IntConst (2)
+                          ; (;)
+                  blockItem
+                    stmt
+                      matchedStmt
+                        lVal
+                          Ident (A)
+                        = (=)
+                        exp
+                          lOrExp
+                            lAndExp
+                              eqExp
+                                relExp
+                                  addExp
+                                    addExp
+                                      mulExp
+                                        unaryExp
+                                          primaryExp
+                                            lVal
+                                              Ident (A)
+                                    addOp
+                                      + (+)
+                                    mulExp
+                                      unaryExp
+                                        primaryExp
+                                          lVal
+                                            Ident (B)
+                        ; (;)
+                blockItem
+                  stmt
+                    matchedStmt
+                      if (if)
+                      ( (()
+                      cond
+                        lOrExp
+                          lOrExp
+                            lAndExp
+                              eqExp
+                                relExp
+                                  addExp
+                                    mulExp
+                                      unaryExp
+                                        primaryExp
+                                          ( (()
+                                          exp
+                                            lOrExp
+                                              lAndExp
+                                                lAndExp
+                                                  eqExp
+                                                    relExp
+                                                      relExp
+                                                        addExp
+                                                          mulExp
+                                                            unaryExp
+                                                              primaryExp
+                                                                lVal
+                                                                  Ident (y)
+                                                      relOp
+                                                        >= (>=)
+                                                      addExp
+                                                        mulExp
+                                                          unaryExp
+                                                            primaryExp
+                                                              number
+                                                                IntConst (10)
+                                                && (&&)
+                                                eqExp
+                                                  eqExp
+                                                    relExp
+                                                      addExp
+                                                        mulExp
+                                                          unaryExp
+                                                            primaryExp
+                                                              lVal
+                                                                Ident (y)
+                                                  eqOp
+                                                    != (!=)
+                                                  relExp
+                                                    addExp
+                                                      mulExp
+                                                        unaryExp
+                                                          primaryExp
+                                                            number
+                                                              IntConst (0)
+                                          ) ())
+                          || (||)
+                          lAndExp
+                            eqExp
+                              relExp
+                                addExp
+                                  mulExp
+                                    unaryExp
+                                      primaryExp
+                                        ( (()
+                                        exp
+                                          lOrExp
+                                            lAndExp
+                                              eqExp
+                                                relExp
+                                                  relExp
+                                                    addExp
+                                                      mulExp
+                                                        unaryExp
+                                                          primaryExp
+                                                            lVal
+                                                              Ident (A)
+                                                  relOp
+                                                    < (<)
+                                                  addExp
+                                                    mulExp
+                                                      unaryExp
+                                                        primaryExp
+                                                          lVal
+                                                            Ident (B)
+                                        ) ())
+                      ) ())
+                      matchedStmt
+                        block
+                          { ({)
+                          blockItemList
+                            blockItemList
+                            blockItem
+                              stmt
+                                matchedStmt
+                                  lVal
+                                    Ident (y)
+                                  = (=)
+                                  exp
+                                    lOrExp
+                                      lAndExp
+                                        eqExp
+                                          relExp
+                                            addExp
+                                              addExp
+                                                mulExp
+                                                  unaryExp
+                                                    primaryExp
+                                                      lVal
+                                                        Ident (y)
+                                              addOp
+                                                + (+)
+                                              mulExp
+                                                unaryExp
+                                                  primaryExp
+                                                    number
+                                                      IntConst (1)
+                                  ; (;)
+                          } (})
+                      else (else)
+                      matchedStmt
+                        block
+                          { ({)
+                          blockItemList
+                            blockItemList
+                            blockItem
+                              stmt
+                                matchedStmt
+                                  lVal
+                                    Ident (y)
+                                  = (=)
+                                  exp
+                                    lOrExp
+                                      lAndExp
+                                        eqExp
+                                          relExp
+                                            addExp
+                                              addExp
+                                                mulExp
+                                                  unaryExp
+                                                    primaryExp
+                                                      lVal
+                                                        Ident (y)
+                                              addOp
+                                                - (-)
+                                              mulExp
+                                                unaryExp
+                                                  primaryExp
+                                                    number
+                                                      IntConst (1)
+                                  ; (;)
+                          } (})
+              blockItem
+                stmt
+                  matchedStmt
+                    if (if)
+                    ( (()
+                    cond
+                      lOrExp
+                        lAndExp
+                          lAndExp
+                            eqExp
+                              relExp
+                                relExp
+                                  addExp
+                                    mulExp
+                                      unaryExp
+                                        primaryExp
+                                          lVal
+                                            Ident (Pi)
+                                relOp
+                                  > (>)
+                                addExp
+                                  mulExp
+                                    unaryExp
+                                      primaryExp
+                                        number
+                                          floatConst (1.0)
+                          && (&&)
+                          eqExp
+                            relExp
+                              relExp
+                                addExp
+                                  mulExp
+                                    unaryExp
+                                      primaryExp
+                                        lVal
+                                          Ident (rate)
+                              relOp
+                                <= (<=)
+                              addExp
+                                mulExp
+                                  unaryExp
+                                    primaryExp
+                                      number
+                                        floatConst (1.0)
+                    ) ())
+                    matchedStmt
+                      block
+                        { ({)
+                        blockItemList
+                          blockItemList
+                          blockItem
+                            stmt
+                              matchedStmt
+                                lVal
+                                  Ident (A)
+                                = (=)
+                                exp
+                                  lOrExp
+                                    lAndExp
+                                      eqExp
+                                        relExp
+                                          addExp
+                                            mulExp
+                                              mulExp
+                                                unaryExp
+                                                  primaryExp
+                                                    ( (()
+                                                    exp
+                                                      lOrExp
+                                                        lAndExp
+                                                          eqExp
+                                                            relExp
+                                                              addExp
+                                                                addExp
+                                                                  mulExp
+                                                                    unaryExp
+                                                                      primaryExp
+                                                                        lVal
+                                                                          Ident (A)
+                                                                addOp
+                                                                  + (+)
+                                                                mulExp
+                                                                  unaryExp
+                                                                    primaryExp
+                                                                      lVal
+                                                                        Ident (B)
+                                                    ) ())
+                                              mulOp
+                                                * (*)
+                                              unaryExp
+                                                primaryExp
+                                                  ( (()
+                                                  exp
+                                                    lOrExp
+                                                      lAndExp
+                                                        eqExp
+                                                          relExp
+                                                            addExp
+                                                              addExp
+                                                                mulExp
+                                                                  unaryExp
+                                                                    primaryExp
+                                                                      lVal
+                                                                        Ident (_X1)
+                                                              addOp
+                                                                - (-)
+                                                              mulExp
+                                                                unaryExp
+                                                                  primaryExp
+                                                                    number
+                                                                      IntConst (3)
+                                                  ) ())
+                                ; (;)
+                        } (})
+                    else (else)
+                    matchedStmt
+                      block
+                        { ({)
+                        blockItemList
+                          blockItemList
+                          blockItem
+                            stmt
+                              matchedStmt
+                                if (if)
+                                ( (()
+                                cond
+                                  lOrExp
+                                    lAndExp
+                                      eqExp
+                                        eqExp
+                                          relExp
+                                            addExp
+                                              mulExp
+                                                unaryExp
+                                                  primaryExp
+                                                    lVal
+                                                      Ident (A)
+                                        eqOp
+                                          == (==)
+                                        relExp
+                                          addExp
+                                            mulExp
+                                              unaryExp
+                                                primaryExp
+                                                  lVal
+                                                    Ident (B)
+                                ) ())
+                                matchedStmt
+                                  block
+                                    { ({)
+                                    blockItemList
+                                      blockItemList
+                                      blockItem
+                                        stmt
+                                          matchedStmt
+                                            lVal
+                                              Ident (B)
+                                            = (=)
+                                            exp
+                                              lOrExp
+                                                lAndExp
+                                                  eqExp
+                                                    relExp
+                                                      addExp
+                                                        addExp
+                                                          mulExp
+                                                            unaryExp
+                                                              primaryExp
+                                                                lVal
+                                                                  Ident (B)
+                                                        addOp
+                                                          + (+)
+                                                        mulExp
+                                                          unaryExp
+                                                            primaryExp
+                                                              number
+                                                                IntConst (1)
+                                            ; (;)
+                                    } (})
+                                else (else)
+                                matchedStmt
+                                  block
+                                    { ({)
+                                    blockItemList
+                                      blockItemList
+                                      blockItem
+                                        stmt
+                                          matchedStmt
+                                            lVal
+                                              Ident (B)
+                                            = (=)
+                                            exp
+                                              lOrExp
+                                                lAndExp
+                                                  eqExp
+                                                    relExp
+                                                      addExp
+                                                        addExp
+                                                          mulExp
+                                                            unaryExp
+                                                              primaryExp
+                                                                lVal
+                                                                  Ident (B)
+                                                        addOp
+                                                          - (-)
+                                                        mulExp
+                                                          unaryExp
+                                                            primaryExp
+                                                              number
+                                                                IntConst (1)
+                                            ; (;)
+                                    } (})
+                        } (})
+            blockItem
+              stmt
+                matchedStmt
+                  return (return)
+                  expOpt
+                  ; (;)
+          } (})
