@@ -1,12 +1,12 @@
 # Compilation Project Quickstart / 项目快速上手
 
-This project contains three standalone stages of a tiny SysY-style compiler: lexer, parser, and IR generator. Each stage can be built and executed from the repository root (`/home/musashi/compilation`). Below are the exact commands and runtime options in both English and Chinese.
+This project contains three standalone stages of a tiny SysY-style compiler: lexer, parser, and IR generator. Each stage can be built and executed from the repository root (`/home/username/compilation`). Below are the exact commands and runtime options in both English and Chinese.
 
 ## 1. Lexical Analyzer / 词法分析器
 
 **Build / 编译**
 ```bash
-cd /home/musashi/compilation
+cd /home/username/compilation
 g++ -std=c++17 -Wall -Wextra -pedantic src/lexical_analyzer/lexical_analyzer.cpp -o lexical_analyzer
 ```
 
@@ -23,7 +23,7 @@ g++ -std=c++17 -Wall -Wextra -pedantic src/lexical_analyzer/lexical_analyzer.cpp
 
 **Build / 编译**
 ```bash
-cd /home/musashi/compilation
+cd /home/username/compilation
 g++ -std=c++17 -Wall -Wextra -pedantic src/syntactic_analyzer/syntactic_analyzer.cpp -o syntactic_analyzer
 ```
 
@@ -40,7 +40,7 @@ g++ -std=c++17 -Wall -Wextra -pedantic src/syntactic_analyzer/syntactic_analyzer
 
 **Build / 编译**
 ```bash
-cd /home/musashi/compilation
+cd /home/username/compilation
 g++ -std=c++17 -Wall -Wextra -pedantic \
     src/intermediate_code_generator/intermediate_code_generator.cpp \
     compiler_ir-master/src/*.cpp \
